@@ -87,6 +87,7 @@ public class Filter extends Operator {
     @Override
     public void setChildren(OpIterator[] children) {
         // some code goes here
+        if(children==null || children.length==0)child=null;
         if(children.length==1)child=children[0];
     }
 

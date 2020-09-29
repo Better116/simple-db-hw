@@ -12,7 +12,7 @@ import javax.swing.tree.*;
  */
 public class JoinOptimizer {
     LogicalPlan p;
-    Vector<LogicalJoinNode> joins;
+    Vector<LogicalJoinNode> joins;//joins是根据where后面的子句来的
 
     /**
      * Constructor
@@ -111,7 +111,30 @@ public class JoinOptimizer {
             // HINT: You may need to use the variable "j" if you implemented
             // a join algorithm that's more complicated than a basic
             // nested-loops join.
-            return -1.0;
+            /*int table1Id=Database.getCatalog().getTableId(j.t1Alias);
+            DbFileIterator dbFileIterator1=Database.getCatalog().getDatabaseFile(table1Id).iterator(new TransactionId());
+            int table2Id=Database.getCatalog().getTableId(j.t2Alias);
+            DbFileIterator dbFileIterator2=Database.getCatalog().getDatabaseFile(table2Id).iterator(new TransactionId());
+            int ntup1=0,ntup2=0;
+            try {
+                dbFileIterator1.open();
+                while(dbFileIterator1.hasNext()){
+                    dbFileIterator1.next();
+                    ntup1++;
+                }
+                dbFileIterator1.close();
+                dbFileIterator2.open();
+                while(dbFileIterator2.hasNext()){
+                    dbFileIterator2.next();
+                    ntup2++;
+                }
+                dbFileIterator2.close();
+            }catch (Exception e){
+
+            }
+
+            return cost1+ntup1*cost2+ntup1*ntup2;*/  //这么做还会报错？
+            return cost1+card1*cost2+card1*card2;
         }
     }
 
@@ -157,6 +180,17 @@ public class JoinOptimizer {
             Map<String, Integer> tableAliasToId) {
         int card = 1;
         // some code goes here
+        switch(joinOp){
+            case EQUALS:if(t1pkey && t2pkey)return Math.min(card1,card2);
+            if(t1pkey)return card2;
+            if(t2pkey)return card1;
+            else return Math.max(card1,card2);
+            case LESS_THAN_OR_EQ:
+            case LESS_THAN:
+            case GREATER_THAN_OR_EQ:
+            case GREATER_THAN:return (int)(0.3*card1*card2);
+        }
+
         return card <= 0 ? 1 : card;
     }
 
@@ -213,6 +247,8 @@ public class JoinOptimizer {
      *             when stats or filter selectivities is missing a table in the
      *             join, or or when another internal error occurs
      */
+    //针对的就是"SELECT * FROM emp,dept,hobbies,hobby WHERE emp.c1 = dept.c0 AND hobbies.c0 = emp.c2 AND hobbies.c1 = hobby.c0 AND e.c3 < 1000;")这种连接，where后的连接不分先后顺序
+    //(t1 join t2) join t3,其实就相当于上面的from-where子句，t1 join t2 join t3,需要规划连接顺序
     public Vector<LogicalJoinNode> orderJoins(
             HashMap<String, TableStats> stats,
             HashMap<String, Double> filterSelectivities, boolean explain)
@@ -220,8 +256,30 @@ public class JoinOptimizer {
         //Not necessary for labs 1--3
 
         // some code goes here
+        PlanCache bestPlan=new PlanCache();
+        for (int i = 1; i <= joins.size(); i++) {
+            Set<Set<LogicalJoinNode>> subJoins=enumerateSubsets(joins,i);
+
+            for(Set<LogicalJoinNode> s:subJoins){
+                double bestCostSoFar=Double.MAX_VALUE;
+                CostCard bestCostCard=null;
+                for(LogicalJoinNode logicalJoinNode:s){
+                    CostCard costCard=computeCostAndCardOfSubplan(stats,filterSelectivities,logicalJoinNode,s,bestCostSoFar,bestPlan);
+                    if(costCard!=null){
+                        bestCostCard=costCard;
+                        bestCostSoFar=bestCostCard.cost;
+                    }
+                }
+                if(bestCostCard!=null) bestPlan.addPlan(s,bestCostCard.cost,bestCostCard.card,bestCostCard.plan);//每个set都有个对应的cost最小的plan
+                if(i==joins.size() && bestCostCard!=null)joins=bestCostCard.plan;
+            }
+        }
+        if(explain)printJoins(joins,bestPlan,stats,filterSelectivities);
+
         //Replace the following
         return joins;
+
+
     }
 
     // ===================== Private Methods =================================
@@ -345,7 +403,7 @@ public class JoinOptimizer {
             } else {
                 // don't consider this plan if one of j.t1 or j.t2
                 // isn't a table joined in prevBest (cross product)
-                return null;
+                return null;//只考虑列名相同的连接
             }
         }
 

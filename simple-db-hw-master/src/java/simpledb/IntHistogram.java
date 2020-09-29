@@ -3,6 +3,12 @@ package simpledb;
 /** A class to represent a fixed-width histogram over a single integer-based field.
  */
 public class IntHistogram {
+    private int sizeOfBucket;
+    private int buckets;
+    private int min;
+    private int max;
+    private int[] num;
+    private int sum;
 
     /**
      * Create a new IntHistogram.
@@ -22,6 +28,16 @@ public class IntHistogram {
      */
     public IntHistogram(int buckets, int min, int max) {
     	// some code goes here
+        this.buckets=buckets;
+        this.max=max;
+        this.min=min;
+        this.sizeOfBucket=((max-min+1)%buckets==0) ? (max-min+1)/buckets : (max-min+1)/buckets+1;
+
+
+        num=new int[buckets];
+//        num[1]=1;            //这只是给了区间，不用算进去
+//        num[buckets]=1;
+//        sum+=2;
     }
 
     /**
@@ -30,6 +46,8 @@ public class IntHistogram {
      */
     public void addValue(int v) {
     	// some code goes here
+        num[(v-min)/sizeOfBucket]+=1;//左闭右开
+        sum+=1;
     }
 
     /**
@@ -45,6 +63,50 @@ public class IntHistogram {
     public double estimateSelectivity(Predicate.Op op, int v) {
 
     	// some code goes here
+        if(v<min){
+            switch(op.toString()){
+                case "=":
+                case "<":
+                case "<=":return 0.0;
+                case "<>":
+                case ">":
+                case ">=":return 1.0;
+            }
+        }
+        if(v>max){
+            switch(op.toString()){
+                case "=":
+                case ">":
+                case ">=":return 0.0;
+                case "<>":
+                case "<":
+                case "<=":return 1.0;
+            }
+        }
+        int i=(v-min)/sizeOfBucket;
+        if(op.toString().equals("="))return ((double)num[i])/sizeOfBucket/sum;
+        if(op.toString().equals("<>"))return 1-((double)num[i])/sizeOfBucket/sum;
+        if(op.toString().equals(">") || op.toString().equals("<=")){
+            int ceil=(int)Math.ceil((double)(v-min)/sizeOfBucket);
+            double part1=(((double)num[i])/sum)*((((double)min+sizeOfBucket*ceil)-v)/sizeOfBucket);
+            double part2=0;
+            for (i=i+1;i<=buckets -1; i++) {
+                part2+=num[i];
+            }
+            part2=part2/sum;
+            if(op.toString().equals(">"))return part1+part2;
+            else return 1-part1-part2;
+        }
+        if(op.toString().equals("<") || op.toString().equals(">=")){
+            double part1=(((double)num[i])/sum)*((((double)v)-(min+sizeOfBucket*(i)))/sizeOfBucket);
+            double part2=0;
+            for (int j=0;j<i ; j++) {
+                part2+=num[j];
+            }
+            part2=part2/sum;
+            if(op.toString().equals("<"))return part1+part2;
+            else return 1-part1-part2;
+        }
         return -1.0;
     }
     
@@ -59,6 +121,7 @@ public class IntHistogram {
     public double avgSelectivity()
     {
         // some code goes here
+
         return 1.0;
     }
     
@@ -67,6 +130,10 @@ public class IntHistogram {
      */
     public String toString() {
         // some code goes here
+        String s="";
+        for (int i = 0; i < buckets; i++) {
+            s+=min+sizeOfBucket*i+"~"+min+sizeOfBucket*(i+1)+":"+num[i=1];
+        }
         return null;
     }
 }

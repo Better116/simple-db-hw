@@ -220,6 +220,7 @@ public class HeapFile implements DbFile {
             @Override
             public void close() {
                 isOpen=false;
+                pgno=0;tuples=null;
             }
         };
 
