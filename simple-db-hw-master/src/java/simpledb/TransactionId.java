@@ -1,6 +1,7 @@
 package simpledb;
 
 import java.io.Serializable;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -12,9 +13,12 @@ public class TransactionId implements Serializable {
 
     static AtomicLong counter = new AtomicLong(0);
     final long myid;
+    public int randomNum;
 
     public TransactionId() {
         myid = counter.getAndIncrement();
+        Random random= new Random();
+        randomNum=random.nextInt(50);
     }
 
     public long getId() {

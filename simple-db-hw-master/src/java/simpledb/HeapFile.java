@@ -92,23 +92,17 @@ public class HeapFile implements DbFile {
     }
 
     // see DbFile.java for javadocs
-    public void writePage(Page page) throws IOException {    //不用把变了的page写入到磁盘吗
+    public void writePage(Page page) throws IOException {
         // some code goes here
         // not necessary for lab1
+//        RandomAccessFile可以指定位置读写文件,fileOutputStream只能追加或者覆盖
 
-        if(page.getId().getPageNumber()>=numPages()){
-            //追加数据
-            FileOutputStream fileOutputStream=new FileOutputStream(f,true);
-            fileOutputStream.write(page.getPageData());
-        }
-        else{
-            //更改数据
-            FileOutputStream fileOutputStream=new FileOutputStream(f);
-            byte[] content=page.getPageData();
-            fileOutputStream.write(content,page.getId().getPageNumber()*BufferPool.getPageSize(),content.length);
-            //第二个参数是流的偏移量还是数组的
-        }
-
+        RandomAccessFile raf=new RandomAccessFile(f,"rw");
+        raf.seek(page.getId().getPageNumber()*BufferPool.getPageSize());//pageNumber是从0开始的
+        byte[] content=page.getPageData();
+        raf.write(content);
+        raf.close();
+        page.markDirty(false,null);
     }
 
     /**
@@ -121,6 +115,7 @@ public class HeapFile implements DbFile {
     }
 
     // see DbFile.java for javadocs
+    //插入元组后立即写入磁盘（numpages要用）,新加页需要写入磁盘，更改的话不用写，长度不变
     public ArrayList<Page> insertTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
         // some code goes here
@@ -131,12 +126,16 @@ public class HeapFile implements DbFile {
         ArrayList<Page> pages=new ArrayList<>();
         for(int i=0;i<numPages();i++){
             HeapPage heapPage=(HeapPage) Database.getBufferPool().getPage(tid,new HeapPageId(getId(),i),Permissions.READ_WRITE);
-            if(heapPage.getNumEmptySlots()==0)continue;
+
+            if(heapPage.getNumEmptySlots()==0){
+                Database.getBufferPool().releasePage(tid,heapPage.getId());
+                continue;
+            }
+
             heapPage.insertTuple(t);
             heapPage.markDirty(true,tid);
             heapPage.setVersion(heapPage.getVersion()+1);
             pages.add(heapPage);
-            //writePage(heapPage);
             return pages;
         }
         HeapPage newPage=new HeapPage(new HeapPageId(getId(),numPages()+1),HeapPage.createEmptyPageData());
@@ -144,18 +143,10 @@ public class HeapFile implements DbFile {
         newPage.markDirty(true,tid);
         newPage.setVersion(newPage.getVersion()+1);
         pages.add(newPage);
+        //新加的页现在只是存储在临时寄存器中，既没在bufferpool里，也没在磁盘里，所以不能用bufferpool里的flushpage方法（该方法是将bufferpool中的脏页刷新到磁盘中）
         writePage(newPage);
         return pages;
 
-//        PageId tpid=t.getRecordId().getPageId();
-//        HeapPage heapPage=(HeapPage)bufferPool.getPage(tid,tpid,Permissions.READ_WRITE);
-//        try {
-//            heapPage.insertTuple(t);
-//        }catch (DbException e){
-//            e.printStackTrace();
-//        }
-//        pages.set(tpid.getPageNumber(),heapPage);
-//        return pages;
     }
 
     // see DbFile.java for javadocs
@@ -207,7 +198,7 @@ public class HeapFile implements DbFile {
 
             @Override
             public Tuple next() throws DbException, TransactionAbortedException, NoSuchElementException {
-                if(!isOpen)throw new NoSuchElementException();
+                if(!isOpen || !hasNext())throw new NoSuchElementException();
                 return tuples.next();
             }
 

@@ -87,6 +87,12 @@ public class Insert extends Operator {
     }
 
     @Override
+    public boolean hasNext() throws TransactionAbortedException, DbException{
+        if(child.hasNext())return true;
+        return false;
+    }
+
+    @Override
     public OpIterator[] getChildren() {
         // some code goes here
         return new OpIterator[]{child};

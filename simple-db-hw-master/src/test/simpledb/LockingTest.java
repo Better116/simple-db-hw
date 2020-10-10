@@ -28,6 +28,7 @@ public class LockingTest extends TestUtil.CreateHeapFile {
     // create a new empty HeapFile and populate it with three pages.
     // we should be able to add 504 tuples on an empty page.
     TransactionId tid = new TransactionId();
+
     for (int i = 0; i < 1025; ++i) {
       empty.insertTuple(tid, Utility.getHeapTuple(i, 2));
     }
@@ -43,8 +44,11 @@ public class LockingTest extends TestUtil.CreateHeapFile {
 
     // forget about locks associated to tid, so they don't conflict with
     // test cases
+    System.out.println(0);
     bp.getPage(tid, p0, Permissions.READ_WRITE).markDirty(true, tid);
+    System.out.println(1);
     bp.getPage(tid, p1, Permissions.READ_WRITE).markDirty(true, tid);
+    System.out.println(2);
     bp.getPage(tid, p2, Permissions.READ_WRITE).markDirty(true, tid);
     bp.flushAllPages();
     bp = Database.resetBufferPool(BufferPool.DEFAULT_PAGES);

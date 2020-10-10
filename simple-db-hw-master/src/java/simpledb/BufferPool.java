@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -23,6 +24,7 @@ public class BufferPool {
     /** Bytes per page, including header. */
     private static final int DEFAULT_PAGE_SIZE = 4096;
 
+
     private static int pageSize = DEFAULT_PAGE_SIZE;
     
     /** Default number of pages passed to the constructor. This is used by
@@ -35,11 +37,12 @@ public class BufferPool {
 
 
     private class BufferPage{
-        Lock lock=new ReentrantLock();
+//        ReentrantReadWriteLock lock=new ReentrantReadWriteLock();
+        PageLock lock=new PageLock();
         Page page;
         TransactionId transactionId;
         Permissions permissions;
-        int numberOfUsed;
+        int numberOfUsed;//用来换页
 
         public int getNumberOfUsed() {
             return numberOfUsed;
@@ -99,7 +102,7 @@ public class BufferPool {
     public  Page getPage(TransactionId tid, PageId pid, Permissions perm)
         throws TransactionAbortedException, DbException {
         // some code goes here
-        if (!buffermap.containsKey(pid) && buffermap.size()>numPages){
+        if (!buffermap.containsKey(pid) && buffermap.size()>=numPages){
             evictPage();
         }
         if (!buffermap.containsKey(pid)) {
@@ -107,11 +110,13 @@ public class BufferPool {
             HeapFile heapFile=(HeapFile)(catalog.getDatabaseFile(pid.getTableId()));
             Page page=heapFile.readPage(pid);
             BufferPage bufferPage=new BufferPage(page,tid,perm);
-            bufferPage.setNumberOfUsed(bufferPage.getNumberOfUsed()+1);
             buffermap.put(pid,bufferPage);
         }
-        buffermap.get(pid).lock.lock();
-        return buffermap.get(pid).page;
+
+        //同一个事务对同一个页既可以获取写锁，也可以获取读锁，即写读不互斥，所以ReentrantReadWriteLock（读读不互斥、读写互斥、写写互斥）用不了
+        buffermap.get(pid).lock.getLock(pid,tid,perm);
+        Page page=buffermap.get(pid).page;
+        return page;
     }
 
     /**
@@ -126,6 +131,11 @@ public class BufferPool {
     public  void releasePage(TransactionId tid, PageId pid) {
         // some code goes here
         // not necessary for lab1|lab2
+        BufferPage bufferPage=buffermap.get(pid);
+        if(bufferPage.transactionId!=null && tid.equals(bufferPage.transactionId)){
+            bufferPage.lock.releasePage(tid,pid);
+        }
+
     }
 
     /**
@@ -136,13 +146,21 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
+        //刷新脏页到磁盘、释放锁
+        flushPages(tid);
+        for (Map.Entry entry:buffermap.entrySet()
+             ) {
+            BufferPage bufferPage=(BufferPage) entry.getValue();
+            if(bufferPage.transactionId!=null && bufferPage.transactionId.equals(tid))releasePage(tid,(PageId) entry.getKey());
+        }
     }
 
     /** Return true if the specified transaction has a lock on the specified page */
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
         // not necessary for lab1|lab2
-        return false;
+        BufferPage bufferPage=buffermap.get(p);
+        return bufferPage.lock.holdsLock(tid,p);
     }
 
     /**
@@ -156,6 +174,18 @@ public class BufferPool {
         throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
+        if(commit)transactionComplete(tid);
+        else{
+            //中止，页面恢复到磁盘状态、释放锁
+            for (Map.Entry entry:buffermap.entrySet()
+                    ) {
+                BufferPage bufferPage=(BufferPage) entry.getValue();
+                if(bufferPage.transactionId!=null && bufferPage.transactionId.equals(tid)){
+                    releasePage(tid,(PageId) entry.getKey());
+                    discardPage((PageId) entry.getKey());
+                }
+            }
+        }
     }
 
     /**
@@ -173,7 +203,7 @@ public class BufferPool {
      * @param tableId the table to add the tuple to
      * @param t the tuple to add
      */
-    public void insertTuple(TransactionId tid, int tableId, Tuple t)
+    public void insertTuple(TransactionId tid, int tableId, Tuple t)  //添加新页时直接添加进磁盘了，事务不一定提交
         throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
@@ -254,11 +284,12 @@ public class BufferPool {
         // some code goes here
         // not necessary for lab1
         try {
-            Page page=getPage(buffermap.get(pid).transactionId, pid, Permissions.READ_WRITE);
+            DbFile heapFile=Database.getCatalog().getDatabaseFile(pid.getTableId());
+            Page page=getPage(buffermap.get(pid).transactionId, pid, Permissions.READ_ONLY);
             TransactionId tid=page.isDirty();
             if(tid!=null) Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(page);
             page.markDirty(false,tid);
-            buffermap.put(pid,new BufferPage(page,tid,Permissions.READ_WRITE));
+            buffermap.put(pid,new BufferPage(page,tid,Permissions.READ_ONLY));
         }catch (Exception e){
             e.printStackTrace();
         }
@@ -269,34 +300,42 @@ public class BufferPool {
     public synchronized  void flushPages(TransactionId tid) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
+        for (Map.Entry entry:buffermap.entrySet()
+             ) {
+            BufferPage bufferPage=(BufferPage)(entry.getValue());
+            if(bufferPage.transactionId!=null && tid.equals(bufferPage.transactionId))flushPage((PageId) entry.getKey());
+        }
     }
 
     /**
      * Discards a page from the buffer pool.
      * Flushes the page to disk to ensure dirty pages are updated on disk.
      */
+    //不驱逐脏页
     private synchronized  void evictPage() throws DbException {
         // some code goes here
         // not necessary for lab1
-        int min=Integer.MAX_VALUE;
+        /*int min=Integer.MAX_VALUE;
         PageId deletePageId=null;
         for (PageId pageId : buffermap.keySet()) {
+            if(buffermap.get(pageId).page.isDirty()!=null)continue;
             if(min>buffermap.get(pageId).getNumberOfUsed()){
                 min=buffermap.get(pageId).getNumberOfUsed();
                 deletePageId=pageId;
             }
         }
-        try {
-            flushPage(deletePageId);
-            discardPage(deletePageId);
-        }catch (Exception e){
-            e.printStackTrace();
-        }
+        if(deletePageId==null)throw new DbException("The bufferpool is full of dirty pages! Please first flush!");
+        discardPage(deletePageId);
         for (PageId pageId : buffermap.keySet()) {
             BufferPage bufferPage=buffermap.get(pageId);
             bufferPage.setNumberOfUsed(bufferPage.getNumberOfUsed()-min);
-            buffermap.put(pageId,bufferPage);
+        }*/
+        for (PageId pageId : buffermap.keySet()) {
+            if(buffermap.get(pageId).page.isDirty()!=null)continue;
+            buffermap.remove(pageId);
+            return;
         }
+        throw new DbException("The bufferpool is full of dirty pages! Please first flush!");
     }
 
 }
