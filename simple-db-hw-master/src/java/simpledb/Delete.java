@@ -70,8 +70,8 @@ public class Delete extends Operator {
                 Database.getBufferPool().deleteTuple(t,child.next());
                 tuple.setField(0,new IntField(Integer.parseInt(tuple.getField(0).toString())+1));
             }
-        }catch (Exception e){
-            e.printStackTrace();
+        }catch (IOException e) {
+            e.printStackTrace();//事务中止异常不能捕获，要留给上级处理
         }
         return tuple;
     }

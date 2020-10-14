@@ -21,7 +21,9 @@ import static org.junit.Assert.*;
  */
 public class TransactionTest extends SimpleDbTestBase {
     // Wait up to 10 minutes for the test to complete
-    private static final int TIMEOUT_MILLIS = 10 * 60 * 1000;
+//    private static final int TIMEOUT_MILLIS = 10 * 60 * 1000;
+    private static final int TIMEOUT_MILLIS =  2*60 * 1000;
+
     private void validateTransactions(int threads)
             throws DbException, TransactionAbortedException, IOException {
         // Create a table with a single integer value = 0
@@ -110,7 +112,6 @@ public class TransactionTest extends SimpleDbTestBase {
 
                         // race the other threads to finish the transaction: one will win
                         q1.close();
-
                         // delete old values (i.e., just one row) from table
                         Delete delOp = new Delete(tr.getId(), ss2);
 
@@ -119,7 +120,6 @@ public class TransactionTest extends SimpleDbTestBase {
                         q2.start();
                         q2.next();
                         q2.close();
-
                         // set up a Set with a tuple that is one higher than the old one.
                         HashSet<Tuple> hs = new HashSet<Tuple>();
                         hs.add(t);
@@ -141,7 +141,7 @@ public class TransactionTest extends SimpleDbTestBase {
                         latch.stillParticipating();
                     }
                 }
-                //System.out.println("thread " + id + " done");
+//                System.out.println("thread " + id + " done");
             } catch (Exception e) {
                 // Store exception for the master thread to handle
                 exception = e;

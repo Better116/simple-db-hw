@@ -13,12 +13,21 @@ public class TransactionId implements Serializable {
 
     static AtomicLong counter = new AtomicLong(0);
     final long myid;
-    public int randomNum;
+     long beginTime;
+
+    public long getBeginTime() {
+        return beginTime;
+    }
+
+    public void setBeginTime() {
+        Random random= new Random();
+        this.beginTime = System.currentTimeMillis()+random.nextInt(1000);;
+    }
 
     public TransactionId() {
         myid = counter.getAndIncrement();
         Random random= new Random();
-        randomNum=random.nextInt(50);
+        beginTime=System.currentTimeMillis()+random.nextInt(1000);
     }
 
     public long getId() {

@@ -80,8 +80,7 @@ public class Query implements Serializable {
      */
     public Tuple next() throws DbException, NoSuchElementException,
             TransactionAbortedException {
-        if (!started)
-            throw new DbException("Database not started.");
+        if (!started) throw new DbException("Database not started.");
 
         return op.next();
     }
